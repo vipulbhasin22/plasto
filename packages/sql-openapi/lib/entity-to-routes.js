@@ -236,6 +236,10 @@ async function entityPlugin (app, opts) {
           return reply.callNotFound()
         }
         reply.header('location', `${app.prefix}/${res[primaryKeyCamelcase]}`)
+        if (request.query.fields) {
+          const output = purgeEntityFields(request.query.fields, res)
+          return output
+        }
         return res
       }
     })
@@ -267,6 +271,9 @@ async function entityPlugin (app, opts) {
     })
     if (res.length === 0) {
       return reply.callNotFound()
+    }
+    if (request.query.fields) {
+      return purgeEntityFields(request.query.fields, res[0])
     }
     return res[0]
   })

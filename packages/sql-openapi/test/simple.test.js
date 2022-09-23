@@ -477,15 +477,15 @@ test('do not return relation fields', async (t) => {
         id INTEGER PRIMARY KEY,
         title VARCHAR(42) NOT NULL,
         body TEXT NOT NULL
-      );
+      );`)
+      await db.query(sql`
       CREATE TABLE categories (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL
-      );
-      ALTER TABLE pages ADD COLUMN category_id INTEGER REFERENCES categories(id);
-      INSERT INTO categories (name) VALUES ('First Category');
-      INSERT INTO pages (title, body) VALUES ('First Page', 'This is the first sample page');
-      `)
+      );`)
+      await db.query(sql`ALTER TABLE pages ADD COLUMN category_id INTEGER REFERENCES categories(id);`)
+      await db.query(sql`INSERT INTO categories (id, name) VALUES (1, 'First Category');`)
+      await db.query(sql`INSERT INTO pages (id, title, body, category_id) VALUES (1, 'First Page', 'Hello World', 1);`)
     } else {
       await db.query(sql`
       CREATE TABLE pages (
@@ -503,6 +503,7 @@ test('do not return relation fields', async (t) => {
       `)
     }
   }
+
   const app = fastify()
   app.register(sqlMapper, {
     ...connInfo,
@@ -517,7 +518,6 @@ test('do not return relation fields', async (t) => {
   teardown(app.close.bind(app))
 
   await app.ready()
-
   {
     const res = await app.inject({
       method: 'GET',
@@ -597,5 +597,38 @@ test('do not return relation fields', async (t) => {
       body: 'Hello World',
       categoryId: 1
     }, 'GET /pages/1 response')
+  }
+
+  {
+    // Include relation field if no fields are specified
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/pages/1?fields=id,title,body',
+      body: {
+        title: 'Updated Page',
+        body: 'Hello World',
+        categoryId: 1
+      }
+    })
+    equal(res.statusCode, 200, 'PUT /pages/1 status code')
+    same(res.json(), {
+      id: 1,
+      title: 'Updated Page',
+      body: 'Hello World'
+    }, 'PUT /pages/1 response')
+  }
+
+  {
+    // Include relation field if no fields are specified
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/pages/1?fields=id,title,body'
+    })
+    equal(res.statusCode, 200, 'DELETE /pages/1 status code')
+    same(res.json(), {
+      id: 1,
+      title: 'Updated Page',
+      body: 'Hello World'
+    }, 'DELETE /pages/1 response')
   }
 })

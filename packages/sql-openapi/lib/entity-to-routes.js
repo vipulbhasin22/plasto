@@ -132,7 +132,13 @@ async function entityPlugin (app, opts) {
       return acc
     }, [])
     const ctx = { app: this, reply }
+
     const res = await entity.find({ limit, offset, fields, orderBy, where, ctx })
+    if (fields) {
+      // remove all fields that are not required
+      const output = res.map((entity) => purgeEntityFields(fields, entity))
+      return output
+    }
     return res
   })
 
@@ -183,6 +189,9 @@ async function entityPlugin (app, opts) {
     })
     if (res.length === 0) {
       return reply.callNotFound()
+    }
+    if (request.query.fields) {
+      return purgeEntityFields(request.query.fields, res[0])
     }
     return res[0]
   })
@@ -282,5 +291,11 @@ function getPrimaryKeyParams (entity) {
 function capitalize (str) {
   return str.charAt(0).toUpperCase() + str.slice(1)
 }
-
+function purgeEntityFields (requiredFields, entity) {
+  const output = {}
+  for (const field of requiredFields) {
+    output[field] = entity[field]
+  }
+  return output
+}
 module.exports = entityPlugin

@@ -451,7 +451,12 @@ test('nested where', async (t) => {
     })
 
     equal(res1.statusCode, 200, 'GET /owners status code')
-    const expected = [...posts]
+    const expected = [...posts].map((post) => {
+      // remove ownerId because we will not get it in response object
+      const output = { ...post }
+      delete output.ownerId
+      return output
+    })
     for (const owner of res1.json()) {
       const res2 = await app.inject({
         method: 'GET',

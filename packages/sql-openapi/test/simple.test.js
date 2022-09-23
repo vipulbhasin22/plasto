@@ -466,3 +466,136 @@ test('simple db, simple rest API', async (t) => {
   const json = res.json()
   matchSnapshot(json, 'GET /documentation/json response')
 })
+
+test('do not return relation fields', async (t) => {
+  const { pass, teardown, same, equal } = t
+
+  async function createTables (db, sql) {
+    if (isSQLite) {
+      await db.query(sql`
+      CREATE TABLE pages (
+        id INTEGER PRIMARY KEY,
+        title VARCHAR(42) NOT NULL,
+        body TEXT NOT NULL
+      );
+      CREATE TABLE categories (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL
+      );
+      ALTER TABLE pages ADD COLUMN category_id INTEGER REFERENCES categories(id);
+      INSERT INTO categories (name) VALUES ('First Category');
+      INSERT INTO pages (title, body) VALUES ('First Page', 'This is the first sample page');
+      `)
+    } else {
+      await db.query(sql`
+      CREATE TABLE pages (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(42) NOT NULL,
+        body TEXT NOT NULL
+      );
+      CREATE TABLE categories (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL
+      );
+      ALTER TABLE pages ADD COLUMN category_id INTEGER REFERENCES categories(id);
+      INSERT INTO categories (name) VALUES ('First Category');
+      INSERT INTO pages (title, body, category_id) VALUES ('First Page', 'Hello World', 1);
+      `)
+    }
+  }
+  const app = fastify()
+  app.register(sqlMapper, {
+    ...connInfo,
+    async onDatabaseLoad (db, sql) {
+      pass('onDatabaseLoad called')
+
+      await clear(db, sql)
+      await createTables(db, sql)
+    }
+  })
+  app.register(sqlOpenAPI)
+  teardown(app.close.bind(app))
+
+  await app.ready()
+
+  {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/pages?fields=id,title,body'
+    })
+    equal(res.statusCode, 200, 'GET /pages status code')
+    same(res.json(), [{
+      id: 1,
+      title: 'First Page',
+      body: 'Hello World'
+    }], 'GET /pages response')
+  }
+
+  {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/pages?fields=id&fields=title&fields=body'
+    })
+    equal(res.statusCode, 200, 'GET /pages status code')
+    same(res.json(), [{
+      id: 1,
+      title: 'First Page',
+      body: 'Hello World'
+    }], 'GET /pages response')
+  }
+
+  {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/pages/1?fields=id,title,body'
+    })
+    equal(res.statusCode, 200, 'GET /pages/1 status code')
+    same(res.json(), {
+      id: 1,
+      title: 'First Page',
+      body: 'Hello World'
+    }, 'GET /pages/1 response')
+  }
+  {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/pages/1?fields=id&fields=title&fields=body'
+    })
+    equal(res.statusCode, 200, 'GET /pages/1 status code')
+    same(res.json(), {
+      id: 1,
+      title: 'First Page',
+      body: 'Hello World'
+    }, 'GET /pages/1 response')
+  }
+
+  {
+    // Include relation field if requested
+    const res = await app.inject({
+      method: 'GET',
+      url: '/pages/1?fields=id,title,body,categoryId'
+    })
+    equal(res.statusCode, 200, 'GET /pages/1 status code')
+    same(res.json(), {
+      id: 1,
+      title: 'First Page',
+      body: 'Hello World',
+      categoryId: 1
+    }, 'GET /pages/1 response')
+  }
+
+  {
+    // Include relation field if no fields are specified
+    const res = await app.inject({
+      method: 'GET',
+      url: '/pages/1'
+    })
+    equal(res.statusCode, 200, 'GET /pages/1 status code')
+    same(res.json(), {
+      id: 1,
+      title: 'First Page',
+      body: 'Hello World',
+      categoryId: 1
+    }, 'GET /pages/1 response')
+  }
+})

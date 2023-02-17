@@ -535,3 +535,140 @@ test('additional options are passed to original functions', async ({ plan, teard
 
   await Promise.all(entityFns)
 })
+
+test('custom plugins', async ({ pass, teardown, same, equal }) => {
+  const app = fastify()
+  app.register(core, {
+    ...connInfo,
+    async onDatabaseLoad (db, sql) {
+      pass('onDatabaseLoad called')
+
+      await clear(db, sql)
+      await createBasicPages(db, sql)
+    }
+  })
+  app.register(auth, {
+    jwt: {
+      secret: 'supersecret'
+    },
+    roleKey: 'X-PLATFORMATIC-ROLE',
+    anonymousRole: 'anonymous',
+    rules: [{
+      role: 'user',
+      entity: 'page',
+      find: {
+        checks: {
+          userId: 'X-PLATFORMATIC-USER-ID'
+        }
+      },
+      delete: false,
+      defaults: {
+        userId: 'X-PLATFORMATIC-USER-ID'
+      },
+      save: {
+        checks: {
+          userId: 'X-PLATFORMATIC-USER-ID'
+        }
+      }
+    }, {
+      role: 'anonymous',
+      entity: 'page',
+      find: false,
+      delete: false,
+      save: false
+    }]
+  })
+  teardown(app.close.bind(app))
+
+  app.get('/titles', async (req, reply) => {
+    await req.authorize({
+      entity: 'page',
+      action: 'find'
+    })
+    const pages = await app.platformatic.entities.page.find({
+      fields: ['title']
+    })
+    return pages.map(page => page.title)
+  })
+
+  app.get('/titles/:id', async (req, reply) => {
+    await req.authorize({
+      entity: 'page',
+      action: 'find',
+      object: { id: req.params.id }
+    })
+    const [page] = await app.platformatic.entities.page.find({
+      fields: ['title'],
+      where: {
+        id: { eq: req.params.id }
+      }
+    })
+    return page.title
+  })
+
+  await app.ready()
+
+  const token = await app.jwt.sign({
+    'X-PLATFORMATIC-USER-ID': 42,
+    'X-PLATFORMATIC-ROLE': 'user'
+  })
+
+  {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/pages',
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      body: {
+        title: 'Hello'
+      }
+    })
+    equal(res.statusCode, 200, 'POST /pages status code')
+    same(res.json(), {
+      id: 1,
+      title: 'Hello',
+      userId: 42
+    }, 'POST /pages response')
+  }
+
+  {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/titles',
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    })
+    equal(res.statusCode, 200, 'GET /titles status code')
+    same(res.json(), ['Hello'], 'GET /titles response')
+  }
+
+  {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/titles'
+    })
+    equal(res.statusCode, 413, 'GET /titles status code')
+  }
+
+  {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/titles/1',
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    })
+    equal(res.statusCode, 200, 'GET /titles/1 status code')
+    same(res.json(), 'Hello', 'GET /titles/1 response')
+  }
+
+  {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/titles/1'
+    })
+    equal(res.statusCode, 413, 'GET /titles status code')
+  }
+})

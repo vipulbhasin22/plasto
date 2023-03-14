@@ -5,13 +5,13 @@ const pino = require('pino')
 const pretty = require('pino-pretty')
 const loadConfig = require('./load-config.js')
 const { isFileAccessible } = require('./utils.js')
+const globalDirectories = require('global-dirs');
 
 async function getTSCExecutablePath (cwd) {
-  const { execa } = await import('execa')
-  const [npmBinLocalFolder, npmBinGlobalFolder] = await Promise.all([
-    execa('npm', ['bin'], { cwd }).then((result) => result.stdout),
-    execa('npm', ['bin', '-g'], { cwd }).then((result) => result.stdout)
-  ])
+  const { packageDirectory } = await import('pkg-dir');
+
+  const npmBinLocalFolder = join(await packageDirectory(), 'node_modules', '.bin')
+  const npmBinGlobalFolder = globalDirectories.npm.binaries
 
   const tscLocalPath = join(npmBinLocalFolder, 'tsc')
   const tscGlobalPath = join(npmBinGlobalFolder, 'tsc')
